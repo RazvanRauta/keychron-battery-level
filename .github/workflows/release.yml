@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0, v1.2.3, etc.
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Build app
+        run: |
+          xcodebuild -project KeychronBattery.xcodeproj \
+                     -scheme KeychronBattery \
+                     -configuration Release \
+                     -derivedDataPath ./build \
+                     CODE_SIGN_IDENTITY="" \
+                     CODE_SIGNING_REQUIRED=NO \
+                     CODE_SIGNING_ALLOWED=NO
+      
+      - name: Install create-dmg
+        run: brew install create-dmg
+      
+      - name: Create DMG
+        run: |
+          mkdir -p dmg-staging
+          cp -R build/Build/Products/Release/KeychronBattery.app dmg-staging/
+          
+          create-dmg \
+            --volname "KeychronBattery" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "KeychronBattery.app" 175 120 \
+            --hide-extension "KeychronBattery.app" \
+            --app-drop-link 625 120 \
+            "KeychronBattery-${{ steps.get_version.outputs.VERSION }}.dmg" \
+            "dmg-staging/" || true
+          
+          # create-dmg sometimes returns non-zero even on success
+          if [ ! -f "KeychronBattery-${{ steps.get_version.outputs.VERSION }}.dmg" ]; then
+            # Fallback to hdiutil if create-dmg fails
+            hdiutil create -volname "Keychron Battery Monitor" \
+                           -srcfolder dmg-staging \
+                           -ov -format UDZO \
+                           "KeychronBattery-${{ steps.get_version.outputs.VERSION }}.dmg"
+          fi
+      
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## Keychron Battery Level Monitor ${{ steps.get_version.outputs.VERSION }}
+          
+          ### Installation
+          1. Download `KeychronBattery-${{ steps.get_version.outputs.VERSION }}.dmg`
+          2. Open the DMG file
+          3. Drag the app to your Applications folder
+          4. Launch and grant Bluetooth permissions
+          
+          ### Requirements
+          - macOS 13.0 or later
+          - Keychron keyboard with Bluetooth
+          
+          ### Features
+          - 🔋 Real-time battery monitoring in menu bar
+          - 🎨 Color-coded battery level display
+          - 🔄 Auto-refresh every 5 minutes
+          - 🚀 Launch at login option
+          EOF
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: KeychronBattery-${{ steps.get_version.outputs.VERSION }}.dmg
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Clean up
+        run: rm -rf dmg-staging build
