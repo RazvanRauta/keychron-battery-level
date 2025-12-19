@@ -31,9 +31,15 @@ jobs:
                      -scheme KeychronBattery \
                      -configuration Release \
                      -derivedDataPath ./build \
-                     CODE_SIGN_IDENTITY="" \
-                     CODE_SIGNING_REQUIRED=NO \
-                     CODE_SIGNING_ALLOWED=NO
+                     CODE_SIGN_IDENTITY="-" \
+                     CODE_SIGNING_REQUIRED=YES \
+                     CODE_SIGNING_ALLOWED=YES
+      
+      - name: Verify app bundle
+        run: |
+          ls -lh build/Build/Products/Release/KeychronBattery.app/Contents/MacOS/
+          file build/Build/Products/Release/KeychronBattery.app/Contents/MacOS/KeychronBattery
+          du -sh build/Build/Products/Release/KeychronBattery.app
       
       - name: Install create-dmg
         run: brew install create-dmg
