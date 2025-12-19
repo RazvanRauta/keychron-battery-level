@@ -65,8 +65,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateBatteryDisplay(level: Int) {
         guard let button = statusItem?.button else { return }
         
-        // Keep the keyboard icon, just update the text
-        button.title = level >= 0 ? " \(level)%" : " --%"
+        let displayText = level >= 0 ? " \(level)%" : " --%"
+        
+        // Apply color based on battery level
+        let color: NSColor
+        if level < 0 {
+            color = .labelColor // Default system color
+        } else if level <= 10 {
+            color = .systemRed
+        } else if level <= 30 {
+            color = .systemOrange
+        } else {
+            color = .labelColor // Default system color
+        }
+        
+        let attributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: color,
+            .font: NSFont.menuBarFont(ofSize: 0) // Use system menu bar font size
+        ]
+        
+        button.attributedTitle = NSAttributedString(string: displayText, attributes: attributes)
     }
     
     // MARK: - Launch at Login
