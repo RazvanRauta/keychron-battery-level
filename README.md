@@ -4,6 +4,8 @@ A lightweight macOS menu bar application that displays the battery level of your
 
 ![Menu Bar Preview](https://img.shields.io/badge/macOS-13.0+-blue.svg)
 
+![Preview](./image.png)
+
 ## Features
 
 - 🔋 **Real-time Battery Monitoring** - Shows Keychron keyboard battery percentage in the menu bar
