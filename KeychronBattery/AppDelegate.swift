@@ -15,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     let bluetoothMonitor = BluetoothBatteryMonitor()
     let hidManager = HIDManager()
+    private var startupRetryCount = 0
     
     static func main() {
         let app = NSApplication.shared
@@ -68,13 +69,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         // 5. Start Bluetooth monitoring after app is fully launched
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.bluetoothMonitor.start()
+            self.scheduleStartupRetries()
         }
         
         // 6. Auto-refresh every 5 minutes (Bluetooth is less battery intensive)
         Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             self?.refresh()
+        }
+    }
+    
+    private func scheduleStartupRetries() {
+        // Retry every 10 seconds for the first 2 minutes (12 times) to catch devices connecting after boot
+        Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] timer in
+            guard let self = self else { return }
+            self.startupRetryCount += 1
+            
+            if self.startupRetryCount > 12 {
+                timer.invalidate()
+                self.logger.info("Startup retries finished.")
+            } else {
+                self.logger.info("Startup retry #\(self.startupRetryCount)")
+                self.refresh()
+            }
         }
     }
     

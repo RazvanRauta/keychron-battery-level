@@ -173,7 +173,28 @@ class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralD
     
     func requestBatteryUpdate() {
         guard let peripheral = keychronPeripheral, peripheral.state == .connected else {
-            logger.warning("⚠️ Keyboard not connected")
+            logger.warning("⚠️ Keyboard not connected. Attempting to reconnect...")
+            
+            guard let central = centralManager, central.state == .poweredOn else {
+                logger.warning("⚠️ Bluetooth manager not ready")
+                return
+            }
+            
+            // 1. Check if it's already connected to the system but we missed it
+            let connectedPeripherals = central.retrieveConnectedPeripherals(withServices: [batteryServiceUUID])
+            for peripheral in connectedPeripherals {
+                if isKeychronDevice(peripheral) {
+                    logger.info("🔄 Found connected peripheral during refresh: \(peripheral.name ?? "Unknown")")
+                    connectToPeripheral(peripheral)
+                    return
+                }
+            }
+            
+            // 2. If not found, ensure we are scanning
+            if !central.isScanning {
+                logger.info("🔍 Restarting scan...")
+                central.scanForPeripherals(withServices: [batteryServiceUUID], options: nil)
+            }
             return
         }
         
