@@ -1,18 +1,20 @@
 import Foundation
 import IOKit.hid
+import os
 
 extension Notification.Name {
     static let didReceiveBatteryLevel = Notification.Name("didReceiveBatteryLevel")
 }
 
 class HIDManager {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.keychron.battery", category: "HIDManager")
     private var manager: IOHIDManager?
     private let reportSize = 64 // K2 HE uses 64-byte reports
     private var deviceBuffers: [IOHIDDevice: UnsafeMutablePointer<UInt8>] = [:] // Keep buffers alive
     private var rawHIDDevice: IOHIDDevice?
     
     init() {
-        print("🚀 HIDManager: Starting search for Keychron devices...")
+        logger.info("🚀 HIDManager: Starting search for Keychron devices...")
         manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         
         // BROAD MATCH: Match ANY device from Keychron (0x3434)
@@ -21,7 +23,7 @@ class HIDManager {
         ]
         
         guard let manager = manager else {
-            print("❌ HIDManager: Failed to create manager.")
+            logger.error("❌ HIDManager: Failed to create manager.")
             return
         }
         
@@ -36,7 +38,8 @@ class HIDManager {
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
         
         let openResult = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        print("📡 HIDManager: Open Result = \(openResult == kIOReturnSuccess ? "Success" : "Error \(openResult)")")
+        let resultString = openResult == kIOReturnSuccess ? "Success" : "Error \(openResult)"
+        logger.info("📡 HIDManager: Open Result = \(resultString)")
     }
     
     private func inspectDevice(_ device: IOHIDDevice) {
@@ -46,7 +49,7 @@ class HIDManager {
         let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
         let transport = IOHIDDeviceGetProperty(device, kIOHIDTransportKey as CFString) as? String ?? "Unknown"
         
-        print("""
+        logger.info("""
         -----------------------------------------
         🔍 Found Device: \(name)
            PID: \(String(format: "0x%04X", pid))
@@ -63,14 +66,14 @@ class HIDManager {
                 let eUsage = IOHIDElementGetUsage(element)
                 // Battery System (0x85) or Power Device (0x84)
                 if ePage == 0x85 || ePage == 0x84 {
-                    print("  🔋 BATTERY ELEMENT: Page=0x\(String(format: "%04X", ePage)), Usage=0x\(String(format: "%04X", eUsage))")
+                    logger.info("  🔋 BATTERY ELEMENT: Page=0x\(String(format: "%04X", ePage)), Usage=0x\(String(format: "%04X", eUsage))")
                 }
             }
         }
 
         // Keychron Raw HID is almost always Page: 0xFF60, Usage: 0x61
         if usagePage == 0xFF60 && usage == 0x61 {
-            print("✅ MATCH! This is the Raw HID interface. Registering receiver...")
+            logger.info("✅ MATCH! This is the Raw HID interface. Registering receiver...")
             setupReceiver(device: device)
         }
     }
@@ -80,69 +83,83 @@ class HIDManager {
         
         // Open the device directly
         let openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-        print("🔓 Opened HID device directly: \(openResult == kIOReturnSuccess ? "Success" : "Failed (\(openResult))")")
+        let resultString = openResult == kIOReturnSuccess ? "Success" : "Failed (\(openResult))"
+        logger.info("🔓 Opened HID device directly: \(resultString)")
         
         // Enumerate all HID elements to find battery-related ones
         if let elements = IOHIDDeviceCopyMatchingElements(device, nil, IOOptionBits(kIOHIDOptionsTypeNone)) as? [IOHIDElement] {
-            print("📋 Found \(elements.count) HID elements:")
+            logger.info("📋 Found \(elements.count) HID elements:")
             for element in elements.prefix(20) {
                 let usagePage = IOHIDElementGetUsagePage(element)
                 let usage = IOHIDElementGetUsage(element)
                 let type = IOHIDElementGetType(element)
-                print("  • Page: 0x\(String(format: "%04X", usagePage)), Usage: 0x\(String(format: "%04X", usage)), Type: \(type.rawValue)")
+                logger.debug("  • Page: 0x\(String(format: "%04X", usagePage)), Usage: 0x\(String(format: "%04X", usage)), Type: \(type.rawValue)")
             }
         }
         
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: reportSize)
         deviceBuffers[device] = buffer // Keep buffer alive
         
+        let context = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        
         // Register input report callback
         IOHIDDeviceRegisterInputReportCallback(device, buffer, reportSize, { context, result, sender, type, reportId, report, reportLength in
-            let data = UnsafeBufferPointer(start: report, count: reportLength)
-            print("📥 HID Data Received (\(reportLength) bytes): \(data.map { String(format: "%02X", $0) }.joined(separator: " "))")
-            
-            // Keychron can send battery info with different formats, check for common patterns
-            if reportLength >= 3 {
-                // Try different byte positions where battery might be
-                for i in 0..<min(reportLength, 10) {
-                    if data[i] > 0 && data[i] <= 100 {
-                        print("🔋 Potential battery at byte \(i): \(data[i])%")
-                    }
-                }
-                
-                // Common pattern: 0x02 command response
-                if data[0] == 0x02 && reportLength > 2 {
-                    let battery = Int(data[2])
-                    print("🔋 Battery Level Parsed (offset 2): \(battery)%")
-                    DispatchQueue.main.async {
-                        NotificationCenter.default.post(name: .didReceiveBatteryLevel, object: battery)
-                    }
-                }
-            }
-        }, nil)
+            let this = Unmanaged<HIDManager>.fromOpaque(context!).takeUnretainedValue()
+            this.handleInputReport(report: report, reportLength: reportLength)
+        }, context)
         
         // Also register input value callback (catches different types of reports)
         IOHIDDeviceRegisterInputValueCallback(device, { context, result, sender, value in
-            let element = IOHIDValueGetElement(value)
-            let usagePage = IOHIDElementGetUsagePage(element)
-            let usage = IOHIDElementGetUsage(element)
-            let intValue = IOHIDValueGetIntegerValue(value)
-            print("📊 Input Value - Page: 0x\(String(format: "%04X", usagePage)), Usage: 0x\(String(format: "%04X", usage)), Value: \(intValue)")
-        }, nil)
+            let this = Unmanaged<HIDManager>.fromOpaque(context!).takeUnretainedValue()
+            this.handleInputValue(value: value)
+        }, context)
         
         // Schedule with run loop
         IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
         
-        print("✅ Input callbacks registered with \(reportSize)-byte buffer")
+        logger.info("✅ Input callbacks registered with \(self.reportSize)-byte buffer")
+    }
+    
+    private func handleInputReport(report: UnsafeMutablePointer<UInt8>, reportLength: CFIndex) {
+        let data = UnsafeBufferPointer(start: report, count: reportLength)
+        let hexString = data.map { String(format: "%02X", $0) }.joined(separator: " ")
+        logger.debug("📥 HID Data Received (\(reportLength) bytes): \(hexString)")
+        
+        // Keychron can send battery info with different formats, check for common patterns
+        if reportLength >= 3 {
+            // Try different byte positions where battery might be
+            for i in 0..<min(reportLength, 10) {
+                if data[i] > 0 && data[i] <= 100 {
+                    logger.debug("🔋 Potential battery at byte \(i): \(data[i])%")
+                }
+            }
+            
+            // Common pattern: 0x02 command response
+            if data[0] == 0x02 && reportLength > 2 {
+                let battery = Int(data[2])
+                logger.info("🔋 Battery Level Parsed (offset 2): \(battery)%")
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .didReceiveBatteryLevel, object: battery)
+                }
+            }
+        }
+    }
+    
+    private func handleInputValue(value: IOHIDValue) {
+        let element = IOHIDValueGetElement(value)
+        let usagePage = IOHIDElementGetUsagePage(element)
+        let usage = IOHIDElementGetUsage(element)
+        let intValue = IOHIDValueGetIntegerValue(value)
+        logger.debug("📊 Input Value - Page: 0x\(String(format: "%04X", usagePage)), Usage: 0x\(String(format: "%04X", usage)), Value: \(intValue)")
     }
     
     func requestBatteryUpdate() {
         guard let device = rawHIDDevice else {
-            print("⚠️ Raw HID device not available yet")
+            logger.warning("⚠️ Raw HID device not available yet")
             return
         }
         
-        print("\n🔄 Attempting battery update...")
+        logger.info("\n🔄 Attempting battery update...")
         
         // Try VIA/QMK protocol commands for battery
         let commandTests: [(reportId: UInt8, data: [UInt8], desc: String)] = [
@@ -161,13 +178,14 @@ class HIDManager {
         for test in commandTests {
             var report = test.data
             let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, CFIndex(test.reportId), &report, report.count)
-            print("📤 \(test.desc): \(result == kIOReturnSuccess ? "✓" : "✗")")
+            let resultString = result == kIOReturnSuccess ? "✓" : "✗"
+            logger.info("📤 \(test.desc): \(resultString)")
             usleep(100000) // 100ms between attempts - give more time for response
         }
         
-        print("\n⏳ Waiting 2 seconds for any delayed responses...")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            print("⏰ Wait complete. Check if any data was received above.")
+        logger.info("\n⏳ Waiting 2 seconds for any delayed responses...")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.logger.info("⏰ Wait complete. Check if any data was received above.")
         }
     }
 }

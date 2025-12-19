@@ -7,10 +7,21 @@
 
 import Cocoa
 import ServiceManagement
+import os
 
+@main
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.keychron.battery", category: "AppDelegate")
     var statusItem: NSStatusItem?
     let bluetoothMonitor = BluetoothBatteryMonitor()
+    let hidManager = HIDManager()
+    
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        _ = NSApplicationMain(CommandLine.argc, CommandLine.unsafeArgv)
+    }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 1. Create the Menu Bar Item with custom icon
@@ -32,7 +43,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         
         // Add Launch at Login toggle
-        let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
         launchAtLoginItem.state = isLaunchAtLoginEnabled() ? .on : .off
         menu.addItem(launchAtLoginItem)
         
@@ -41,25 +52,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         
         // 3. Listen for battery updates from Bluetooth
-        NotificationCenter.default.addObserver(forName: .didUpdateBluetoothBattery, object: nil, queue: .main) { notification in
+        NotificationCenter.default.addObserver(forName: .didUpdateBluetoothBattery, object: nil, queue: .main) { [weak self] notification in
             if let level = notification.object as? Int {
-                self.updateBatteryDisplay(level: level)
+                self?.logger.info("Received Bluetooth battery update: \(level)%")
+                self?.updateBatteryDisplay(level: level)
             }
         }
         
-        // 4. Start Bluetooth monitoring after app is fully launched
+        // 4. Listen for battery updates from HID (Wired)
+        NotificationCenter.default.addObserver(forName: .didReceiveBatteryLevel, object: nil, queue: .main) { [weak self] notification in
+            if let level = notification.object as? Int {
+                self?.logger.info("Received HID battery update: \(level)%")
+                self?.updateBatteryDisplay(level: level)
+            }
+        }
+        
+        // 5. Start Bluetooth monitoring after app is fully launched
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.bluetoothMonitor.start()
         }
         
-        // 5. Auto-refresh every 5 minutes (Bluetooth is less battery intensive)
-        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
-            self.refresh()
+        // 6. Auto-refresh every 5 minutes (Bluetooth is less battery intensive)
+        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.refresh()
         }
     }
     
     @objc func refresh() {
+        logger.info("Refreshing battery status...")
         bluetoothMonitor.requestBatteryUpdate()
+        hidManager.requestBatteryUpdate()
     }
     
     private func updateBatteryDisplay(level: Int) {
@@ -89,31 +111,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     // MARK: - Launch at Login
     
-    @objc func toggleLaunchAtLogin() {
+    @objc func toggleLaunchAtLogin(_ sender: NSMenuItem) {
         if isLaunchAtLoginEnabled() {
             disableLaunchAtLogin()
+            sender.state = .off
         } else {
             enableLaunchAtLogin()
-        }
-        
-        // Update menu item state
-        if let menu = statusItem?.menu {
-            for item in menu.items {
-                if item.title == "Launch at Login" {
-                    item.state = isLaunchAtLoginEnabled() ? .on : .off
-                }
-            }
+            sender.state = .on
         }
     }
     
     func isLaunchAtLoginEnabled() -> Bool {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .enabled
+        }
+        
         guard let bundleId = Bundle.main.bundleIdentifier else { return false }
         
-        // Check if app is in Login Items
-        let jobDicts = SMCopyAllJobDictionaries(kSMDomainUserLaunchd).takeRetainedValue() as? [[String: Any]] ?? []
-        return jobDicts.contains { dict in
-            (dict["Label"] as? String) == bundleId
+        // Fallback for older macOS: Check launchctl list
+        let task = Process()
+        task.launchPath = "/bin/launchctl"
+        task.arguments = ["list"]
+        
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        
+        do {
+            try task.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8) {
+                return output.contains(bundleId)
+            }
+        } catch {
+            logger.error("Failed to check launchctl: \(error.localizedDescription)")
         }
+        
+        return false
     }
     
     func enableLaunchAtLogin() {
@@ -123,14 +156,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Use modern API for macOS 13+
             do {
                 try SMAppService.mainApp.register()
-                print("✅ Enabled launch at login")
+                logger.info("✅ Enabled launch at login")
             } catch {
-                print("❌ Failed to enable launch at login: \(error)")
+                logger.error("❌ Failed to enable launch at login: \(error.localizedDescription)")
             }
         } else {
             // Fallback for older macOS
             let success = SMLoginItemSetEnabled(bundleId as CFString, true)
-            print(success ? "✅ Enabled launch at login" : "❌ Failed to enable launch at login")
+            if success {
+                logger.info("✅ Enabled launch at login")
+            } else {
+                logger.error("❌ Failed to enable launch at login")
+            }
         }
     }
     
@@ -141,14 +178,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Use modern API for macOS 13+
             do {
                 try SMAppService.mainApp.unregister()
-                print("✅ Disabled launch at login")
+                logger.info("✅ Disabled launch at login")
             } catch {
-                print("❌ Failed to disable launch at login: \(error)")
+                logger.error("❌ Failed to disable launch at login: \(error.localizedDescription)")
             }
         } else {
             // Fallback for older macOS
             let success = SMLoginItemSetEnabled(bundleId as CFString, false)
-            print(success ? "✅ Disabled launch at login" : "❌ Failed to disable launch at login")
+            if success {
+                logger.info("✅ Disabled launch at login")
+            } else {
+                logger.error("❌ Failed to disable launch at login")
+            }
         }
     }
 }
