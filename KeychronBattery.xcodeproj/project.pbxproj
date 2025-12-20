@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		E514D17F2EF6B42800AE04F3 /* .swiftlint.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = .swiftlint.yml; sourceTree = "<group>"; };
 		E5924C262EF54433008AC58B /* KeychronBattery.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeychronBattery.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -45,6 +46,7 @@
 		E5924C1D2EF54433008AC58B = {
 			isa = PBXGroup;
 			children = (
+				E514D17F2EF6B42800AE04F3 /* .swiftlint.yml */,
 				E5924C282EF54433008AC58B /* KeychronBattery */,
 				E5924C272EF54433008AC58B /* Products */,
 			);
@@ -68,6 +70,7 @@
 				E5924C222EF54433008AC58B /* Sources */,
 				E5924C232EF54433008AC58B /* Frameworks */,
 				E5924C242EF54433008AC58B /* Resources */,
+				E514D17E2EF6B3D100AE04F3 /* SwiftLint */,
 			);
 			buildRules = (
 			);
@@ -126,6 +129,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		E514D17E2EF6B3D100AE04F3 /* SwiftLint */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = SwiftLint;
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\n\nif which swiftlint >/dev/null; then\n  # Optional: use --fix to automatically format code like \"Prettier\"\n  swiftlint --fix && swiftlint\nelse\n  echo \"warning: SwiftLint not installed. Install it via 'brew install swiftlint'\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		E5924C222EF54433008AC58B /* Sources */ = {
@@ -262,8 +286,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-CODE_SIGN_ENTITLEMENTS = KeychronBattery/KeychronBattery.entitlements;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = KeychronBattery/KeychronBattery.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -282,6 +306,7 @@ CODE_SIGN_ENTITLEMENTS = KeychronBattery/KeychronBattery.entitlements;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KeychronBattery/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -306,8 +331,8 @@ CODE_SIGN_ENTITLEMENTS = KeychronBattery/KeychronBattery.entitlements;
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-CODE_SIGN_ENTITLEMENTS = KeychronBattery/KeychronBattery.entitlements;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = KeychronBattery/KeychronBattery.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -326,6 +351,7 @@ CODE_SIGN_ENTITLEMENTS = KeychronBattery/KeychronBattery.entitlements;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KeychronBattery/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";

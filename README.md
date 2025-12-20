@@ -174,7 +174,7 @@ This method creates a more polished DMG with custom styling (requires `create-dm
 3. **Prepare staging directory**
    ```bash
    mkdir -p dmg-staging
-   cp -R build/Build/Products/Release/KeychronBattery.app dmg-staging/
+   cp -R build/Release/KeychronBattery.app dmg-staging/
    ```
 
 4. **Create styled DMG**
@@ -188,7 +188,7 @@ This method creates a more polished DMG with custom styling (requires `create-dm
      --icon "KeychronBattery.app" 175 120 \
      --hide-extension "KeychronBattery.app" \
      --app-drop-link 625 120 \
-     "KeychronBattery.dmg" \
+     "KeychronBattery_vX.X.X.dmg" \
      "dmg-staging/"
    ```
 
