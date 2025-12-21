@@ -9,11 +9,18 @@ extension Notification.Name {
 class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.keychron.battery", category: "BluetoothMonitor")
     private var centralManager: CBCentralManager!
-    private var keychronPeripheral: CBPeripheral?
-    private var batteryLevel: Int = -1
+    private var connectedPeripherals: [UUID: CBPeripheral] = [:]
 
     private let batteryServiceUUID = CBUUID(string: "180F")
     private let batteryLevelCharacteristicUUID = CBUUID(string: "2A19")
+
+    // Common services to detect devices that are connected but might not expose Battery Service primarily
+    private let commonServices: [CBUUID] = [
+        CBUUID(string: "180F"), // Battery
+        CBUUID(string: "180A"), // Device Information
+        CBUUID(string: "1800"), // Generic Access
+        CBUUID(string: "1801")  // Generic Attribute
+    ]
 
     override init() {
         super.init()
@@ -39,15 +46,15 @@ class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralD
         logger.info("📡 Bluetooth State: \(self.stateDescription(central.state))")
 
         if central.state == .poweredOn {
-            logger.info("🔍 Scanning for Keychron devices...")
-            // Scan for peripherals with battery service
-            centralManager.scanForPeripherals(withServices: [batteryServiceUUID], options: nil)
+            logger.info("🔍 Scanning for all devices...")
+            // Scan for nil (all devices) because some headphones don't advertise the battery service UUID
+            centralManager.scanForPeripherals(withServices: nil, options: nil)
 
             // Also check already connected peripherals
-            let connectedPeripherals = centralManager.retrieveConnectedPeripherals(withServices: [batteryServiceUUID])
+            let connectedPeripherals = centralManager.retrieveConnectedPeripherals(withServices: commonServices)
             for peripheral in connectedPeripherals {
                 logger.info("📱 Found connected peripheral: \(peripheral.name ?? "Unknown")")
-                if isKeychronDevice(peripheral) {
+                if shouldTrackDevice(peripheral) && self.connectedPeripherals[peripheral.identifier] == nil {
                     connectToPeripheral(peripheral)
                 }
             }
@@ -59,9 +66,13 @@ class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralD
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
         let name = peripheral.name ?? "Unknown"
 
-        if isKeychronDevice(peripheral) {
-            logger.info("✅ Found Keychron: \(name)")
-            centralManager.stopScan()
+        // Check if device is connectable
+        if let isConnectable = advertisementData[CBAdvertisementDataIsConnectable] as? NSNumber, isConnectable.boolValue == false {
+            return
+        }
+
+        if shouldTrackDevice(peripheral) && connectedPeripherals[peripheral.identifier] == nil {
+            logger.info("✅ Found device: \(name)")
             connectToPeripheral(peripheral)
         }
     }
@@ -70,18 +81,22 @@ class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralD
         logger.info("🔗 Connected to \(peripheral.name ?? "device")")
         peripheral.delegate = self
         logger.info("🔍 Discovering services...")
-        peripheral.discoverServices([batteryServiceUUID])
+        // Discover all services to ensure we find Battery Service even if it's not primary
+        peripheral.discoverServices(nil)
+    }
+
+    func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        logger.error("❌ Failed to connect to \(peripheral.name ?? "device"): \(error?.localizedDescription ?? "Unknown error")")
+        connectedPeripherals.removeValue(forKey: peripheral.identifier)
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         logger.info("❌ Disconnected from \(peripheral.name ?? "device")")
-        batteryLevel = -1
-        notifyBatteryUpdate()
+        connectedPeripherals.removeValue(forKey: peripheral.identifier)
+        notifyBatteryUpdate(uuid: peripheral.identifier.uuidString, name: peripheral.name ?? "Unknown", level: -1)
 
         // Try to reconnect
-        if let keychron = keychronPeripheral {
-            centralManager.connect(keychron, options: nil)
-        }
+        centralManager.connect(peripheral, options: nil)
     }
 
     // MARK: - CBPeripheralDelegate
@@ -130,30 +145,36 @@ class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralD
 
         if characteristic.uuid == batteryLevelCharacteristicUUID {
             if let data = characteristic.value, let level = data.first {
-                batteryLevel = Int(level)
-                logger.info("🔋 Battery Level: \(self.batteryLevel)%")
-                notifyBatteryUpdate()
+                let intLevel = Int(level)
+                logger.info("🔋 Battery Level [\(peripheral.name ?? "Unknown")]: \(intLevel)%")
+                notifyBatteryUpdate(uuid: peripheral.identifier.uuidString, name: peripheral.name ?? "Unknown", level: intLevel)
             }
         }
     }
 
     // MARK: - Helper Methods
 
-    private func isKeychronDevice(_ peripheral: CBPeripheral) -> Bool {
-        let name = peripheral.name?.lowercased() ?? ""
-        return name.contains("keychron") || name.contains("k2")
+    private func shouldTrackDevice(_ peripheral: CBPeripheral) -> Bool {
+        // Ensure device has a name to avoid connecting to random beacons
+        return peripheral.name != nil
     }
 
     private func connectToPeripheral(_ peripheral: CBPeripheral) {
-        keychronPeripheral = peripheral
+        connectedPeripherals[peripheral.identifier] = peripheral
         centralManager.connect(peripheral, options: nil)
     }
 
-    private func notifyBatteryUpdate() {
+    private func notifyBatteryUpdate(uuid: String, name: String, level: Int) {
         DispatchQueue.main.async {
+            let userInfo: [String: Any] = [
+                "uuid": uuid,
+                "name": name,
+                "level": level
+            ]
             NotificationCenter.default.post(
                 name: .didUpdateBluetoothBattery,
-                object: self.batteryLevel
+                object: nil,
+                userInfo: userInfo
             )
         }
     }
@@ -171,40 +192,38 @@ class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralD
     }
 
     func requestBatteryUpdate() {
-        guard let peripheral = keychronPeripheral, peripheral.state == .connected else {
-            logger.warning("⚠️ Keyboard not connected. Attempting to reconnect...")
-
-            guard let central = centralManager, central.state == .poweredOn else {
-                logger.warning("⚠️ Bluetooth manager not ready")
-                return
-            }
-
-            let connectedPeripherals = central.retrieveConnectedPeripherals(withServices: [batteryServiceUUID])
-
-            for peripheral in connectedPeripherals where isKeychronDevice(peripheral) {
-                logger.info("🔄 Found connected peripheral during refresh: \(peripheral.name ?? "Unknown")")
-                connectToPeripheral(peripheral)
-                return
-            }
-
-            if !central.isScanning {
-                logger.info("🔍 Restarting scan...")
-                central.scanForPeripherals(withServices: [batteryServiceUUID], options: nil)
-            }
-            return
-        }
-
-        if let services = peripheral.services {
-            for service in services where service.uuid == batteryServiceUUID {
-                if let characteristics = service.characteristics {
-                    for characteristic in characteristics where characteristic.uuid == batteryLevelCharacteristicUUID {
-                        peripheral.readValue(for: characteristic)
-                        return
-                    }
+        // 1. Check for any new system-connected devices we missed
+        if let central = centralManager, central.state == .poweredOn {
+            let systemConnected = central.retrieveConnectedPeripherals(withServices: commonServices)
+            for peripheral in systemConnected {
+                if shouldTrackDevice(peripheral) && connectedPeripherals[peripheral.identifier] == nil {
+                    logger.info("🔄 Found new system-connected peripheral: \(peripheral.name ?? "Unknown")")
+                    connectToPeripheral(peripheral)
                 }
             }
         }
 
-        peripheral.discoverServices([batteryServiceUUID])
+        // 2. Refresh data for all connected devices
+        for peripheral in connectedPeripherals.values {
+            if peripheral.state == .connected {
+                if let services = peripheral.services {
+                    for service in services where service.uuid == batteryServiceUUID {
+                        if let characteristics = service.characteristics {
+                            for characteristic in characteristics where characteristic.uuid == batteryLevelCharacteristicUUID {
+                                peripheral.readValue(for: characteristic)
+                            }
+                        }
+                    }
+                }
+            } else {
+                centralManager.connect(peripheral, options: nil)
+            }
+        }
+
+        // 3. If we have absolutely no devices, ensure we are scanning
+        if connectedPeripherals.isEmpty && centralManager?.isScanning == false {
+            logger.info("🔍 Restarting scan...")
+            centralManager.scanForPeripherals(withServices: nil, options: nil)
+        }
     }
 }

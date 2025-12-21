@@ -1,6 +1,6 @@
 # Keychron Battery Level Monitor
 
-A lightweight macOS menu bar application that displays the battery level of your Keychron keyboard in real-time via Bluetooth.
+A lightweight macOS menu bar application that displays the battery level of your Keychron keyboard and other Bluetooth peripherals in real-time.
 
 ![Menu Bar Preview](https://img.shields.io/badge/macOS-13.0+-blue.svg)
 
@@ -8,11 +8,13 @@ A lightweight macOS menu bar application that displays the battery level of your
 
 ## Features
 
-- 🔋 **Real-time Battery Monitoring** - Shows Keychron keyboard battery percentage in the menu bar
+- 🔋 **Real-time Battery Monitoring** - Shows battery percentage for connected devices in the menu bar
+- 🖱️ **Multi-Device Support** - Monitor multiple devices simultaneously (Keyboards, Mice, Headphones, Gamepads)
+- 🎭 **Customizable Icons** - Assign custom icons (⌨️, 🖱️, 🎮, 🎧) to each device via the menu
 - 🎨 **Color-coded Display** - Battery level changes color (red ≤10%, orange ≤30%, default >30%)
 - 🔄 **Auto-refresh** - Updates battery level every 5 minutes automatically
 - 🚀 **Launch at Login** - Optional setting to start the app automatically when you log in
-- 📡 **Bluetooth-based** - Uses CoreBluetooth to communicate with your Keychron keyboard
+- 📡 **Bluetooth & HID** - Uses CoreBluetooth and IOKit (HID) to communicate with devices
 - 🌓 **Dark Mode Support** - Menu bar icon adapts to system appearance
 
 ## Requirements
@@ -39,13 +41,16 @@ See the [Building](#building) section below.
 
 1. **Launch the app** - The keyboard battery percentage will appear in your menu bar
 2. **Click the menu bar icon** to access options:
+   - **Device List** - See all connected devices and their battery levels
+   - **Customize Icons** - Hover over a device in the menu to change its icon (Keyboard, Mouse, Gamepad, Headphones)
    - **Refresh Battery** - Manually update the battery level
    - **Launch at Login** - Toggle automatic startup
    - **Quit** - Exit the application
 
 The battery level updates automatically every 5 minutes and displays as:
 - `--% ` when disconnected or initializing
-- `XX%` with color coding based on charge level
+- `⌨️ 80%` (or configured icon) with color coding based on charge level
+- Multiple devices are shown side-by-side: `⌨️ 80% 🖱️ 45%`
 
 ## Building
 

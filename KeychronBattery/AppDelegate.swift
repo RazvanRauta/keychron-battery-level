@@ -32,16 +32,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusMenuController = StatusMenuController(appDelegate: self)
 
         NotificationCenter.default.addObserver(forName: .didUpdateBluetoothBattery, object: nil, queue: .main) { [weak self] notification in
-            if let level = notification.object as? Int {
-                self?.logger.info("Received Bluetooth battery update: \(level)%")
-                self?.statusMenuController?.updateBatteryDisplay(level: level)
+            if let userInfo = notification.userInfo,
+               let uuid = userInfo["uuid"] as? String,
+               let name = userInfo["name"] as? String,
+               let level = userInfo["level"] as? Int {
+                self?.logger.info("Received Bluetooth battery update for \(name): \(level)%")
+                self?.statusMenuController?.updateBatteryDisplay(uuid: uuid, name: name, level: level)
             }
         }
 
         NotificationCenter.default.addObserver(forName: .didReceiveBatteryLevel, object: nil, queue: .main) { [weak self] notification in
             if let level = notification.object as? Int {
                 self?.logger.info("Received HID battery update: \(level)%")
-                self?.statusMenuController?.updateBatteryDisplay(level: level)
+                // Use a fixed UUID for HID device to treat it as a distinct device
+                self?.statusMenuController?.updateBatteryDisplay(uuid: "HID-DEVICE-001", name: "Wired/HID Device", level: level)
             }
         }
 
