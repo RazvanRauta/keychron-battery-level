@@ -7,7 +7,7 @@ extension Notification.Name {
 }
 
 class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.keychron.battery", category: "BluetoothMonitor")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "dev.rrazvan.keychron.battery", category: "BluetoothMonitor")
     private var centralManager: CBCentralManager!
     private var connectedPeripherals: [UUID: CBPeripheral] = [:]
 
@@ -46,18 +46,9 @@ class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralD
         logger.info("📡 Bluetooth State: \(self.stateDescription(central.state))")
 
         if central.state == .poweredOn {
-            logger.info("🔍 Scanning for all devices...")
-            // Scan for nil (all devices) because some headphones don't advertise the battery service UUID
-            centralManager.scanForPeripherals(withServices: nil, options: nil)
-
-            // Also check already connected peripherals
-            let connectedPeripherals = centralManager.retrieveConnectedPeripherals(withServices: commonServices)
-            for peripheral in connectedPeripherals {
-                logger.info("📱 Found connected peripheral: \(peripheral.name ?? "Unknown")")
-                if shouldTrackDevice(peripheral) && self.connectedPeripherals[peripheral.identifier] == nil {
-                    connectToPeripheral(peripheral)
-                }
-            }
+            logger.info("🔍 Checking for connected devices...")
+            // Only check for devices already connected to the system
+            requestBatteryUpdate()
         } else {
             logger.warning("⚠️ Bluetooth not available")
         }
@@ -220,10 +211,5 @@ class BluetoothBatteryMonitor: NSObject, CBCentralManagerDelegate, CBPeripheralD
             }
         }
 
-        // 3. If we have absolutely no devices, ensure we are scanning
-        if connectedPeripherals.isEmpty && centralManager?.isScanning == false {
-            logger.info("🔍 Restarting scan...")
-            centralManager.scanForPeripherals(withServices: nil, options: nil)
-        }
     }
 }

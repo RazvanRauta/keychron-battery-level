@@ -16,7 +16,7 @@ private struct BatteryCommand {
 class HIDManager {
     // MARK: - Properties
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.keychron.battery", category: "HIDManager")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "dev.rrazvan.keychron.battery", category: "HIDManager")
     private var manager: IOHIDManager?
     private let reportSize = 64 // K2 HE uses 64-byte reports
     private var deviceBuffers: [IOHIDDevice: UnsafeMutablePointer<UInt8>] = [:] // Keep buffers alive
