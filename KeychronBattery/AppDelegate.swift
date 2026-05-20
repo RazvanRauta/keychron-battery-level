@@ -15,8 +15,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     let bluetoothMonitor = BluetoothBatteryMonitor()
     let hidManager = HIDManager()
+    let homeAssistantPublisher = HomeAssistantPublisher()
 
     var statusMenuController: StatusMenuController?
+    private var preferencesController: PreferencesWindowController?
 
     private var startupRetryCount = 0
 
@@ -52,6 +54,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.bluetoothMonitor.start()
             self.scheduleStartupRetries()
+            self.homeAssistantPublisher.start()
         }
 
         Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
@@ -79,6 +82,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("Refreshing battery status...")
         bluetoothMonitor.requestBatteryUpdate()
         hidManager.requestBatteryUpdate()
+    }
+
+    func openPreferences() {
+        if preferencesController == nil {
+            preferencesController = PreferencesWindowController(publisher: homeAssistantPublisher)
+        }
+        preferencesController?.present()
     }
 
     func isLaunchAtLoginEnabled() -> Bool {

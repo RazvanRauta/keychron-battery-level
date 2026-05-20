@@ -16,6 +16,7 @@ A lightweight macOS menu bar application that displays the battery level of your
 - 🚀 **Launch at Login** - Optional setting to start the app automatically when you log in
 - 📡 **Bluetooth & HID** - Uses CoreBluetooth and IOKit (HID) to communicate with devices
 - 🌓 **Dark Mode Support** - Menu bar icon adapts to system appearance
+- 🏠 **Home Assistant Integration** - Publishes battery levels to Home Assistant via MQTT Discovery
 
 ## Requirements
 
@@ -275,14 +276,51 @@ If you prefer not to use GitHub Actions, you can create releases manually:
 
 ```
 KeychronBattery/
-├── AppDelegate.swift              # Main app delegate and menu bar setup
-├── BluetoothBatteryHelper.swift   # CoreBluetooth battery monitoring
-├── HIDManager.swift               # HID device management (alternative method)
-├── main.swift                     # App entry point
-├── Info.plist                     # App configuration and permissions
-├── KeychronBattery.entitlements   # Bluetooth entitlements
-└── Assets.xcassets/               # App icons and menu bar icon
+├── AppDelegate.swift                  # Main app delegate and menu bar setup
+├── BluetoothBatteryHelper.swift       # CoreBluetooth battery monitoring
+├── HIDManager.swift                   # HID device management (alternative method)
+├── StatusMenuController.swift         # Menu bar UI
+├── HomeAssistantPublisher.swift       # MQTT client + HA Discovery (optional)
+├── PreferencesWindowController.swift  # Preferences window
+├── KeychronCredentials.swift          # Keychain helpers for MQTT password
+├── Info.plist                         # App configuration and permissions
+├── KeychronBattery.entitlements       # Bluetooth + network.client entitlements
+└── Assets.xcassets/                   # App icons and menu bar icon
 ```
+
+## Home Assistant Integration
+
+The app can publish battery readings to Home Assistant via MQTT Discovery. Once configured, every BLE/HID peripheral the app sees appears in HA automatically as a battery sensor — no YAML, no template sensors.
+
+### Prerequisites (HA side)
+
+1. **Mosquitto broker** add-on installed (HA OS → Settings → Add-ons → Mosquitto broker), or any reachable MQTT broker.
+2. **MQTT integration** enabled in HA — it usually auto-prompts once the broker is up.
+3. A dedicated MQTT user in HA → Settings → People → Users (e.g. `mac-battery`) with a password. The app uses these credentials.
+
+The default discovery prefix is `homeassistant` — leave it untouched.
+
+### Configure the app
+
+1. Click the menu bar icon → **Preferences…**
+2. Enter:
+   - **Host** — `homeassistant.local` (or your HA's IP)
+   - **Port** — `1883` (default; `8883` for TLS)
+   - **Username** / **Password** — the MQTT user you created above
+   - **Use TLS** — only if your broker requires it
+3. Click **Test Connection** to verify, then **Save**.
+
+Within seconds you'll see entries under HA → Settings → Devices & Services → MQTT: a "bridge" device representing this Mac, plus one sub-device per peripheral, each carrying a Battery sensor.
+
+### Data model
+
+- Each peripheral becomes its own HA device, linked via `via_device` to the Mac bridge.
+- The whole app shares a single availability topic — when the Mac/app goes offline, all entities flip to "Unavailable" together (MQTT LWT).
+- States are retained, so values persist across HA restarts.
+
+### Building from source (Home Assistant integration)
+
+The MQTT client uses the [CocoaMQTT](https://github.com/emqx/CocoaMQTT) Swift package. Xcode resolves it automatically the first time you build (Package Dependencies are wired into the project).
 
 ## Troubleshooting
 

@@ -12,6 +12,7 @@ class StatusMenuController: NSObject {
 
     private var devices: [String: DeviceInfo] = [:]
     private var deviceMenuItems: [String: NSMenuItem] = [:]
+    private var haStatusItem: NSMenuItem?
     private weak var appDelegate: AppDelegate?
 
     init(appDelegate: AppDelegate) {
@@ -19,7 +20,15 @@ class StatusMenuController: NSObject {
         super.init()
         setupStatusItem()
         setupMenu()
+
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(haStatusChanged(_:)),
+                                               name: .haPublisherStatusChanged,
+                                               object: nil)
+        refreshHAStatus()
     }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -44,6 +53,17 @@ class StatusMenuController: NSObject {
         menu.addItem(refreshItem)
 
         menu.addItem(NSMenuItem.separator())
+
+        // HA status row (non-clickable, updated via notification)
+        let haStatus = NSMenuItem(title: "Home Assistant: not configured", action: nil, keyEquivalent: "")
+        haStatus.isEnabled = false
+        menu.addItem(haStatus)
+        haStatusItem = haStatus
+
+        // Preferences Item
+        let prefsItem = NSMenuItem(title: "Preferences…", action: #selector(openPreferencesClicked), keyEquivalent: ",")
+        prefsItem.target = self
+        menu.addItem(prefsItem)
 
         // Launch at Login Item
         let launchItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchClicked(_:)), keyEquivalent: "")
@@ -166,6 +186,20 @@ class StatusMenuController: NSObject {
 
     @objc private func refreshClicked() {
         appDelegate?.refresh()
+    }
+
+    @objc private func openPreferencesClicked() {
+        appDelegate?.openPreferences()
+    }
+
+    @objc private func haStatusChanged(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in self?.refreshHAStatus() }
+    }
+
+    private func refreshHAStatus() {
+        guard let item = haStatusItem else { return }
+        let status = appDelegate?.homeAssistantPublisher.status ?? .notConfigured
+        item.title = status.displayString
     }
 
     @objc private func toggleLaunchClicked(_ sender: NSMenuItem) {
