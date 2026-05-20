@@ -53,6 +53,47 @@ The battery level updates automatically every 5 minutes and displays as:
 - `⌨️ 80%` (or configured icon) with color coding based on charge level
 - Multiple devices are shown side-by-side: `⌨️ 80% 🖱️ 45%`
 
+## Home Assistant Integration
+
+The app can publish battery readings to Home Assistant via MQTT Discovery. Once configured, every BLE/HID peripheral the app sees appears in HA automatically as a battery sensor — no YAML, no template sensors.
+
+### Prerequisites (HA side)
+
+1. **Mosquitto broker** add-on installed (HA OS → Settings → Add-ons → Mosquitto broker), or any reachable MQTT broker.
+2. **MQTT integration** enabled in HA — it usually auto-prompts once the broker is up.
+3. A dedicated MQTT user in HA → Settings → People → Users (e.g. `mac-battery`) with a password. The app uses these credentials.
+
+The default discovery prefix is `homeassistant` — leave it untouched.
+
+### Configure the app
+
+1. Click the menu bar icon → **Preferences…**
+2. (Optional) Use the **Discovered** dropdown at the top to auto-fill the broker. It browses the LAN over mDNS for:
+   - `_mqtt._tcp` and `_secure-mqtt._tcp` — native broker advertisements
+   - `_home-assistant._tcp` — your HA instance (listed as "probable MQTT"; assumes the broker lives on the same host at port 1883)
+
+   Pick one and the Host / Port / TLS fields are filled automatically. Pick **Manual entry** to type the values yourself — e.g. for an external broker on a NAS, or if your network doesn't propagate mDNS.
+
+   On first use macOS will prompt for **Local Network** access — allow it, otherwise the popup just shows "Searching…" forever.
+3. Fill in:
+   - **Host** — `homeassistant.local`, your HA's IP, or whatever the Discovered popup filled in
+   - **Port** — `1883` (default; `8883` for TLS)
+   - **Username** / **Password** — the MQTT user you created above
+   - **Use TLS** — only if your broker requires it
+4. Click **Test Connection** to verify, then **Save**.
+
+Within seconds you'll see entries under HA → Settings → Devices & Services → MQTT: a "bridge" device representing this Mac, plus one sub-device per peripheral, each carrying a Battery sensor.
+
+### Data model
+
+- Each peripheral becomes its own HA device, linked via `via_device` to the Mac bridge.
+- The whole app shares a single availability topic — when the Mac/app goes offline, all entities flip to "Unavailable" together (MQTT LWT).
+- States are retained, so values persist across HA restarts.
+
+### Building from source (Home Assistant integration)
+
+The MQTT client uses the [CocoaMQTT](https://github.com/emqx/CocoaMQTT) Swift package. Xcode resolves it automatically the first time you build (Package Dependencies are wired into the project).
+
 ## Building
 
 ### Prerequisites
@@ -287,40 +328,6 @@ KeychronBattery/
 ├── KeychronBattery.entitlements       # Bluetooth + network.client entitlements
 └── Assets.xcassets/                   # App icons and menu bar icon
 ```
-
-## Home Assistant Integration
-
-The app can publish battery readings to Home Assistant via MQTT Discovery. Once configured, every BLE/HID peripheral the app sees appears in HA automatically as a battery sensor — no YAML, no template sensors.
-
-### Prerequisites (HA side)
-
-1. **Mosquitto broker** add-on installed (HA OS → Settings → Add-ons → Mosquitto broker), or any reachable MQTT broker.
-2. **MQTT integration** enabled in HA — it usually auto-prompts once the broker is up.
-3. A dedicated MQTT user in HA → Settings → People → Users (e.g. `mac-battery`) with a password. The app uses these credentials.
-
-The default discovery prefix is `homeassistant` — leave it untouched.
-
-### Configure the app
-
-1. Click the menu bar icon → **Preferences…**
-2. Enter:
-   - **Host** — `homeassistant.local` (or your HA's IP)
-   - **Port** — `1883` (default; `8883` for TLS)
-   - **Username** / **Password** — the MQTT user you created above
-   - **Use TLS** — only if your broker requires it
-3. Click **Test Connection** to verify, then **Save**.
-
-Within seconds you'll see entries under HA → Settings → Devices & Services → MQTT: a "bridge" device representing this Mac, plus one sub-device per peripheral, each carrying a Battery sensor.
-
-### Data model
-
-- Each peripheral becomes its own HA device, linked via `via_device` to the Mac bridge.
-- The whole app shares a single availability topic — when the Mac/app goes offline, all entities flip to "Unavailable" together (MQTT LWT).
-- States are retained, so values persist across HA restarts.
-
-### Building from source (Home Assistant integration)
-
-The MQTT client uses the [CocoaMQTT](https://github.com/emqx/CocoaMQTT) Swift package. Xcode resolves it automatically the first time you build (Package Dependencies are wired into the project).
 
 ## Troubleshooting
 
