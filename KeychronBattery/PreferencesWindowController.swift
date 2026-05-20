@@ -1,9 +1,12 @@
 import Cocoa
 
-final class PreferencesWindowController: NSWindowController {
+final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
 
     private let publisher: HomeAssistantPublisher
+    private let discovery = MQTTBrokerDiscovery()
 
+    private let brokerPopup   = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let refreshButton = NSButton(title: "↻", target: nil, action: nil)
     private let hostField     = NSTextField()
     private let portField     = NSTextField()
     private let userField     = NSTextField()
@@ -14,11 +17,13 @@ final class PreferencesWindowController: NSWindowController {
     private let cancelButton  = NSButton(title: "Cancel", target: nil, action: nil)
     private let statusLabel   = NSTextField(labelWithString: "")
 
+    private static let manualTitle = "Manual entry"
+
     init(publisher: HomeAssistantPublisher) {
         self.publisher = publisher
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 360),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -26,11 +31,22 @@ final class PreferencesWindowController: NSWindowController {
         window.title = "Home Assistant Preferences"
         window.isReleasedWhenClosed = false
         super.init(window: window)
+        window.delegate = self
         buildUI()
         loadValues()
+
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(brokersChanged),
+                                               name: .mqttBrokersChanged,
+                                               object: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        discovery.stop()
+    }
 
     // MARK: - UI
 
@@ -41,6 +57,15 @@ final class PreferencesWindowController: NSWindowController {
         portField.placeholderString = "1883"
         userField.placeholderString = "mac-battery"
         passField.placeholderString = "••••••••"
+
+        brokerPopup.target = self
+        brokerPopup.action = #selector(brokerSelected)
+        rebuildBrokerMenu()
+
+        refreshButton.target = self
+        refreshButton.action = #selector(refreshDiscovery)
+        refreshButton.bezelStyle = .roundRect
+        refreshButton.toolTip = "Re-scan for MQTT brokers"
 
         tlsCheckbox.target = self
         tlsCheckbox.action = #selector(tlsToggled)
@@ -57,14 +82,19 @@ final class PreferencesWindowController: NSWindowController {
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
         statusLabel.maximumNumberOfLines = 3
-        statusLabel.preferredMaxLayoutWidth = 420
+        statusLabel.preferredMaxLayoutWidth = 440
+
+        let discoveryRow = NSStackView(views: [brokerPopup, refreshButton])
+        discoveryRow.orientation = .horizontal
+        discoveryRow.spacing = 6
 
         let form = NSGridView(views: [
-            [label("Host:"),      hostField],
-            [label("Port:"),      portField],
-            [label("Username:"),  userField],
-            [label("Password:"),  passField],
-            [NSView(),            tlsCheckbox]
+            [label("Discovered:"), discoveryRow],
+            [label("Host:"),       hostField],
+            [label("Port:"),       portField],
+            [label("Username:"),   userField],
+            [label("Password:"),   passField],
+            [NSView(),             tlsCheckbox]
         ])
         form.column(at: 0).xPlacement = .trailing
         form.rowSpacing = 8
@@ -93,6 +123,8 @@ final class PreferencesWindowController: NSWindowController {
             stack.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor, constant: -20),
             buttons.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
             buttons.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
+            brokerPopup.widthAnchor.constraint(equalToConstant: 280),
+            refreshButton.widthAnchor.constraint(equalToConstant: 30),
             hostField.widthAnchor.constraint(equalToConstant: 320),
             portField.widthAnchor.constraint(equalToConstant: 100),
             userField.widthAnchor.constraint(equalToConstant: 320),
@@ -104,6 +136,32 @@ final class PreferencesWindowController: NSWindowController {
         let l = NSTextField(labelWithString: text)
         l.alignment = .right
         return l
+    }
+
+    // MARK: - Broker menu
+
+    private func rebuildBrokerMenu() {
+        brokerPopup.removeAllItems()
+
+        let brokers = discovery.brokers
+        if brokers.isEmpty {
+            brokerPopup.addItem(withTitle: "Searching…")
+            brokerPopup.item(at: 0)?.isEnabled = false
+        } else {
+            for broker in brokers {
+                brokerPopup.addItem(withTitle: broker.displayName)
+                brokerPopup.lastItem?.representedObject = broker
+            }
+        }
+
+        brokerPopup.menu?.addItem(.separator())
+        let manual = NSMenuItem(title: Self.manualTitle, action: nil, keyEquivalent: "")
+        brokerPopup.menu?.addItem(manual)
+        brokerPopup.selectItem(withTitle: Self.manualTitle)
+    }
+
+    @objc private func brokersChanged() {
+        rebuildBrokerMenu()
     }
 
     // MARK: - Load / Save
@@ -135,6 +193,34 @@ final class PreferencesWindowController: NSWindowController {
     }
 
     // MARK: - Actions
+
+    @objc private func brokerSelected() {
+        guard let selected = brokerPopup.selectedItem,
+              let broker = selected.representedObject as? MQTTBrokerDiscovery.Broker else { return }
+
+        showStatus("Resolving \(broker.serviceName)…", isError: false)
+        discovery.resolve(broker) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let (host, port)):
+                self.hostField.stringValue = host
+                self.portField.stringValue = String(port)
+                if broker.kind != .homeAssistant {
+                    self.tlsCheckbox.state = broker.suggestsTLS ? .on : .off
+                }
+                self.showStatus("✓ Picked \(broker.serviceName) at \(host):\(port)", isError: false)
+            case .failure(let err):
+                self.showStatus("✗ Resolve failed: \(err.localizedDescription)", isError: true)
+                self.brokerPopup.selectItem(withTitle: Self.manualTitle)
+            }
+        }
+    }
+
+    @objc private func refreshDiscovery() {
+        discovery.stop()
+        rebuildBrokerMenu()
+        discovery.start()
+    }
 
     @objc private func tlsToggled() {
         let useTLS = tlsCheckbox.state == .on
@@ -196,12 +282,17 @@ final class PreferencesWindowController: NSWindowController {
         statusLabel.textColor = isError ? .systemRed : .secondaryLabelColor
     }
 
-    // MARK: - Show
+    // MARK: - Show / Close
 
     func present() {
         NSApp.activate(ignoringOtherApps: true)
         window?.center()
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
+        discovery.start()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        discovery.stop()
     }
 }

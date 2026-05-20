@@ -8,5 +8,11 @@
 		<string>This app needs Bluetooth access to monitor your Keychron keyboard's battery level.</string>
 		<key>LSUIElement</key>
 		<true />
+		<key>NSBonjourServices</key>
+		<array>
+			<string>_mqtt._tcp</string>
+			<string>_secure-mqtt._tcp</string>
+			<string>_home-assistant._tcp</string>
+		</array>
 	</dict>
 </plist>
